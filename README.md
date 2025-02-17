@@ -10,7 +10,7 @@ You need first to compile the plugin using the following command:
 ./gradlew buildPlugin
 ```
 
-then you can find the `Jar` file in `build/libs/common/vulnerabilitiesJenkins-1.0-SNAPSHOT.jar`.
+then you can find the `Jar` file in `build/libs/vulnerabilitiesJenkins-VERSION.jar`.
 
 Then go to:
 
@@ -24,6 +24,5 @@ You will see a new icon appear on the right side panel.
 ![img.png](images/img.png)
 
 ## How to use
-There are categories implemented right now, click the refresh button for one of the categories if any pattern that might
-be vulnerable is found it will be added to the list of items under that category, `double click` to go to the vulnerable
-line.
+Just open the plugin tab, and you shall get the potentially vulnerable patterns on a list, 
+double click any element in the list and the concerned file on the concerned line will be opened.
