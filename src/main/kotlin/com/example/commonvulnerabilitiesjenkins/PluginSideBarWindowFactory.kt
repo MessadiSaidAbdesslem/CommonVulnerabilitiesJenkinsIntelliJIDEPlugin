@@ -52,6 +52,18 @@ class PluginSideBarWindowFactory : ToolWindowFactory {
     private val CSRF_SEARCH_REGEX = Regex("do[A-Z][a-z]")
     private val CSRF_SEARCH_STRINGS = listOf("@WebMethod")
 
+    private val MISSING_PERMS_SEARCH_REGEX = Regex("doFillCredentials.*Items")
+
+    private val YAML_SEARCH_STRINGS = listOf("new Yaml(")
+
+    private val SSL_SEARCH_STRINGS = listOf("setDefaultSSLSocketFactory", "SSLContext")
+
+    private val GENERAL_RCE_SEARCH_STRINGS = listOf("Runtime.exec", "exec")
+
+    private val BAD_LIBS_DEFAULTS_SEARCH_STRINGS =
+        listOf("org.apache.commons.digester.Digester", "org.apache.commons.digester3.Digester")
+
+
     private val listModel: DefaultListModel<SearchResult> = DefaultListModel<SearchResult>()
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
@@ -101,14 +113,19 @@ class PluginSideBarWindowFactory : ToolWindowFactory {
         val srcDir = findSrcDirectory(project)
         if (srcDir != null) {
             val javaFiles = findFilesWithExtension(srcDir, "java")
-            val jellyAndGroovyFiles = findFilesWithExtension(srcDir, "jelly")
-                .plus(findFilesWithExtension(srcDir, "groovy"))
+            val jellyAndGroovyFiles =
+                findFilesWithExtension(srcDir, "jelly").plus(findFilesWithExtension(srcDir, "groovy"))
 
             findXXE(javaFiles)
             findXSSVulnerabilities(jellyAndGroovyFiles)
             findUnencryptedPasswords(jellyAndGroovyFiles)
             findRCEVulnerabilities(javaFiles)
             findCSRFVulnerabilities(javaFiles)
+            findMissingPermsVulnerabilities(javaFiles)
+            findYamlVulnerabilities(javaFiles)
+            findSSLVulnerabilities(javaFiles)
+            findGeneralRCEVulnerabilities(javaFiles)
+            findBadLibrariesVulnerabilities(javaFiles)
 
             if (listModel.isEmpty) {
                 listModel.addElement(SearchResult(null, null, 0, null))
@@ -169,6 +186,26 @@ class PluginSideBarWindowFactory : ToolWindowFactory {
     private fun findCSRFVulnerabilities(javaFiles: List<VirtualFile>) {
         fileContainsRegex(CSRF_SEARCH_REGEX, javaFiles, "CSRF")
         fileContainAnyStringOflist(CSRF_SEARCH_STRINGS, javaFiles, "CSRF")
+    }
+
+    private fun findMissingPermsVulnerabilities(javaFiles: List<VirtualFile>) {
+        fileContainsRegex(MISSING_PERMS_SEARCH_REGEX, javaFiles, "Missing Perms")
+    }
+
+    private fun findYamlVulnerabilities(javaFiles: List<VirtualFile>) {
+        fileContainAnyStringOflist(YAML_SEARCH_STRINGS, javaFiles, "Yaml")
+    }
+
+    private fun findSSLVulnerabilities(javaFiles: List<VirtualFile>) {
+        fileContainAnyStringOflist(SSL_SEARCH_STRINGS, javaFiles, "SSL")
+    }
+
+    private fun findGeneralRCEVulnerabilities(javaFiles: List<VirtualFile>) {
+        fileContainAnyStringOflist(GENERAL_RCE_SEARCH_STRINGS, javaFiles, "RCE General")
+    }
+
+    private fun findBadLibrariesVulnerabilities(javaFiles: List<VirtualFile>) {
+        fileContainAnyStringOflist(BAD_LIBS_DEFAULTS_SEARCH_STRINGS, javaFiles, "Bad Libs")
     }
 
     private fun goToLineOnDoubleClick(project: Project, fileList: JList<SearchResult>): MouseAdapter {
