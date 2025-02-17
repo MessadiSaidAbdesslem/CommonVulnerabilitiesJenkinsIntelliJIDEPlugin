@@ -13,7 +13,8 @@
     <!-- Description of the plugin displayed on the Plugin Page and IDE Plugin Manager.
          Simple HTML elements (text formatting, paragraphs, and lists) can be added inside of <![CDATA[ ]]> tag.
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-description -->
-    <description>This plugin is made to detect common and potential classes and patterns used in jenkins plugins.</description>
+    <description>This plugin is made to detect common and potential classes and patterns used in jenkins plugins.
+    </description>
 
     <!-- Product and plugin compatibility requirements.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
@@ -26,6 +27,7 @@
     </extensions>
 
     <extensions defaultExtensionNs="com.intellij">
-        <toolWindow factoryClass="com.example.commonvulnerabilitiesjenkins.PluginSideBarWindowFactory" id="MyPlugin" anchor="right" />
+        <toolWindow factoryClass="com.example.commonvulnerabilitiesjenkins.PluginSideBarWindowFactory"
+                    id="Jenkins Inspector" anchor="right"/>
     </extensions>
 </idea-plugin>

@@ -8,16 +8,9 @@ import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.content.ContentFactory
 import java.awt.BorderLayout
-import java.awt.GridLayout
-import java.awt.event.ActionListener
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
-import javax.swing.DefaultListModel
-import javax.swing.JButton
-import javax.swing.JLabel
-import javax.swing.JList
-import javax.swing.JPanel
-import javax.swing.ListSelectionModel
+import javax.swing.*
 
 class PluginSideBarWindowFactory : ToolWindowFactory {
 
@@ -59,25 +52,28 @@ class PluginSideBarWindowFactory : ToolWindowFactory {
     private val CSRF_SEARCH_REGEX = Regex("do[A-Z][a-z]")
     private val CSRF_SEARCH_STRINGS = listOf("@WebMethod")
 
+    private val listModel: DefaultListModel<SearchResult> = DefaultListModel<SearchResult>()
+
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
-        val panel = JPanel()
+        val panel = JPanel(BorderLayout())
 
-        panel.layout = GridLayout(5, 1)
+        findPotentialVulnerabilities(project)
 
-        val xxePanel = createSectionPanelXXE(project)
-        panel.add(xxePanel)
+        val fileList = JList(listModel)
+        fileList.selectionMode = ListSelectionModel.SINGLE_SELECTION
 
-        val xssPanel = createSectionPanelXSS(project)
-        panel.add(xssPanel)
+        fileList.addMouseListener(goToLineOnDoubleClick(project, fileList))
 
-        val passPanel = createSectionPanelUnencryptedPasswords(project)
-        panel.add(passPanel)
+        val scrollPane = JBScrollPane(fileList)
+        panel.add(scrollPane, BorderLayout.CENTER)
 
-        val rcePanel = createSectionRCE(project)
-        panel.add(rcePanel)
+        val refreshButton = JButton("Refresh")
+        refreshButton.addActionListener {
+            listModel.clear()
+            findPotentialVulnerabilities(project)
+        }
 
-        val csrfPanel = createSectionCSRF(project)
-        panel.add(csrfPanel)
+        panel.add(refreshButton, BorderLayout.SOUTH)
 
         val contentFactory = ContentFactory.getInstance()
         val content = contentFactory.createContent(panel, "", false)
@@ -101,212 +97,78 @@ class PluginSideBarWindowFactory : ToolWindowFactory {
         }
     }
 
+    private fun findPotentialVulnerabilities(project: Project) {
+        val srcDir = findSrcDirectory(project)
+        if (srcDir != null) {
+            val javaFiles = findFilesWithExtension(srcDir, "java")
+            val jellyAndGroovyFiles = findFilesWithExtension(srcDir, "jelly")
+                .plus(findFilesWithExtension(srcDir, "groovy"))
+
+            findXXE(javaFiles)
+            findXSSVulnerabilities(jellyAndGroovyFiles)
+            findUnencryptedPasswords(jellyAndGroovyFiles)
+            findRCEVulnerabilities(javaFiles)
+            findCSRFVulnerabilities(javaFiles)
+
+            if (listModel.isEmpty) {
+                listModel.addElement(SearchResult(null, null, 0, null))
+            }
+
+        } else {
+            listModel.addElement(SearchResult(null, null, 0, null))
+        }
+    }
+
     private fun findSrcDirectory(project: Project): VirtualFile? {
         val baseDir = project.baseDir
         return baseDir?.findChild("src")?.takeIf { it.isDirectory }
     }
 
-    private fun createSectionPanelXXE(project: Project): JPanel {
-        val listModel = DefaultListModel<SearchResult>()
-
-        val sectionPanel = createGenericSection(project, "Potential XXE", listModel, {
-            listModel.clear()
-            val srcDir = findSrcDirectory(project)
-            if (srcDir != null) {
-                val files = findFilesWithExtension(srcDir, "java")
-
-                files.forEach { file ->
-                    val content = file.contentsToByteArray().toString(Charsets.UTF_8)
-                    val lines = content.lines()
-                    var offset = 0
-                    lines.forEachIndexed { index, line ->
-                        if (XXE_SEARCH_STRINGS.any { xxe -> xxe in line }) {
-                            listModel.addElement(SearchResult(file, index, offset))
-                        }
-                        offset += line.length + 1
-                    }
-                }
-
-                if (listModel.isEmpty) {
-                    listModel.addElement(SearchResult(null, null, 0))
-                }
-
-            } else {
-                listModel.addElement(SearchResult(null, null, 0))
-            }
-        })
-        return sectionPanel
+    private fun findXXE(javaFiles: List<VirtualFile>) {
+        fileContainAnyStringOflist(XXE_SEARCH_STRINGS, javaFiles, "XXE")
     }
 
-    private fun createSectionPanelXSS(project: Project): JPanel {
-        val listModel = DefaultListModel<SearchResult>()
-
-        val sectionPanel = createGenericSection(project, "Potential XSS", listModel, {
-            listModel.clear()
-            val srcDir = findSrcDirectory(project)
-            if (srcDir != null) {
-                val files = findFilesWithExtension(srcDir, "jelly")
-                files.forEach { file ->
-                    // regex check for "${" between script tags
-                    val content = file.contentsToByteArray().toString(Charsets.UTF_8)
-                    val regexRes = XSS_SEARCH_REGEX.findAll(content)
-                    for (res in regexRes.iterator()) {
-                        val lineNumber = content.substring(0, res.groups[0]!!.range.first)
-                            .count { char -> char == '\n' }
-                        listModel.addElement(SearchResult(file, lineNumber, res.groups[0]!!.range.first))
-                    }
-
-                    // check for common vulnerable XSS inputs
-                    val lines = content.lines()
-                    var offset = 0
-                    lines.forEachIndexed { index, line ->
-                        if (XSS_SEARCH_STRINGS.any { xss -> xss in line }) {
-                            listModel.addElement(SearchResult(file, index, offset))
-                        }
-                        offset += line.length + 1
-                    }
-
+    private fun fileContainAnyStringOflist(stringList: List<String>, files: List<VirtualFile>, vulnName: String) {
+        files.forEach { file ->
+            val content = file.contentsToByteArray().toString(Charsets.UTF_8)
+            val lines = content.lines()
+            var offset = 0
+            lines.forEachIndexed { index, line ->
+                if (stringList.any { xxe -> xxe in line }) {
+                    listModel.addElement(SearchResult(file, index, offset, vulnName))
                 }
-                if (listModel.isEmpty) {
-                    listModel.addElement(SearchResult(null, null, 0))
-                }
-            } else {
-                listModel.addElement(SearchResult(null, null, 0))
+                offset += line.length + 1
             }
-        })
-        return sectionPanel
+        }
     }
 
-    private fun createSectionPanelUnencryptedPasswords(project: Project): JPanel {
-        val listModel = DefaultListModel<SearchResult>()
-
-        val sectionPanel = createGenericSection(project, "Potenitial Unencrypted password", listModel, {
-            listModel.clear()
-            val srcDir = findSrcDirectory(project)
-            if (srcDir != null) {
-                val jellyAndGroovyFiles =
-                    findFilesWithExtension(srcDir, "jelly")
-                        .plus(findFilesWithExtension(srcDir, "groovy"))
-
-
-                jellyAndGroovyFiles.forEach { file ->
-                    val content = file.contentsToByteArray().toString(Charsets.UTF_8)
-                    val lines = content.lines()
-                    var offset = 0
-                    lines.forEachIndexed { index, line ->
-                        if (UNENCRYPTED_PASSWORDS_STRINGS.any { passStr -> passStr in line }) {
-                            listModel.addElement(SearchResult(file, index, offset))
-                        }
-                        offset += line.length + 1
-                    }
-                }
-
-                if (listModel.isEmpty) {
-                    listModel.addElement(SearchResult(null, null, 0))
-                }
-
-            } else {
-                listModel.addElement(SearchResult(null, null, 0))
+    private fun fileContainsRegex(regex: Regex, files: List<VirtualFile>, vulnName: String) {
+        files.forEach { file ->
+            val content = file.contentsToByteArray().toString(Charsets.UTF_8)
+            val regexRes = regex.findAll(content)
+            for (res in regexRes.iterator()) {
+                val lineNumber = content.substring(0, res.groups[0]!!.range.first).count { char -> char == '\n' }
+                listModel.addElement(SearchResult(file, lineNumber, res.groups[0]!!.range.first, vulnName))
             }
-        })
-        return sectionPanel
+        }
     }
 
-    private fun createSectionRCE(project: Project): JPanel {
-        val listModel = DefaultListModel<SearchResult>()
-        val sectionPanel = createGenericSection(project, "Potential RCE", listModel, {
-            listModel.clear()
-            val srcDir = findSrcDirectory(project)
-            if (srcDir != null) {
-                val files = findFilesWithExtension(srcDir, "java")
-
-                files.forEach { file ->
-                    val content = file.contentsToByteArray().toString(Charsets.UTF_8)
-                    val lines = content.lines()
-                    var offset = 0
-                    lines.forEachIndexed { index, line ->
-                        if (RCE_SEARCH_STRINGS.any { rce -> rce in line }) {
-                            listModel.addElement(SearchResult(file, index, offset))
-                        }
-                        offset += line.length + 1
-                    }
-                }
-
-                if (listModel.isEmpty) {
-                    listModel.addElement(SearchResult(null, null, 0))
-                }
-            } else {
-                listModel.addElement(SearchResult(null, null, 0))
-            }
-        })
-
-        return sectionPanel
+    private fun findXSSVulnerabilities(jellyFiles: List<VirtualFile>) {
+        fileContainsRegex(XSS_SEARCH_REGEX, jellyFiles, "XSS")
+        fileContainAnyStringOflist(XSS_SEARCH_STRINGS, jellyFiles, "XSS")
     }
 
-    private fun createSectionCSRF(project: Project): JPanel {
-        val listModel = DefaultListModel<SearchResult>()
-
-        val sectionPanel = createGenericSection(project, "Potential CSRF", listModel, {
-            listModel.clear()
-            val srcDir = findSrcDirectory(project)
-            if (srcDir != null) {
-                val files = findFilesWithExtension(srcDir, "java")
-                files.forEach { file ->
-                    val contents = file.contentsToByteArray().toString(Charsets.UTF_8)
-                    val regexRes = CSRF_SEARCH_REGEX.findAll(contents)
-                    // looking for function names starting with do[A-Z][a-z]
-                    for (res in regexRes.iterator()) {
-                        val lineNumber = contents.substring(0, res.groups[0]!!.range.first).count { char ->
-                            char == '\n'
-                        }
-                        listModel.addElement(SearchResult(file, lineNumber, res.groups[0]!!.range.first))
-                    }
-
-                    val lines = contents.lines()
-                    var offset = 0
-                    lines.forEachIndexed { index, line ->
-                        if (CSRF_SEARCH_STRINGS.any { csrf -> csrf in line }) {
-                            listModel.addElement(SearchResult(file, index, offset))
-                        }
-                        offset += 1 + line.length
-                    }
-                }
-                if (listModel.isEmpty) {
-                    listModel.addElement(SearchResult(null, null, 0))
-                }
-            } else {
-                listModel.addElement(SearchResult(null, null, 0))
-            }
-        })
-
-        return sectionPanel
+    private fun findUnencryptedPasswords(jellyFiles: List<VirtualFile>) {
+        fileContainAnyStringOflist(UNENCRYPTED_PASSWORDS_STRINGS, jellyFiles, "Unencrypted Passwords")
     }
 
-    private fun createGenericSection(
-        project: Project,
-        title: String,
-        listModel: DefaultListModel<SearchResult>,
-        refreshAction: ActionListener
-    ): JPanel {
-        val sectionPanel = JPanel(BorderLayout())
+    private fun findRCEVulnerabilities(javaFiles: List<VirtualFile>) {
+        fileContainAnyStringOflist(RCE_SEARCH_STRINGS, javaFiles, "RCE")
+    }
 
-        val titleLabel = JLabel(title)
-        sectionPanel.add(titleLabel, BorderLayout.NORTH)
-
-        val fileList = JList(listModel)
-        fileList.selectionMode = ListSelectionModel.SINGLE_SELECTION
-
-        fileList.addMouseListener(goToLineOnDoubleClick(project, fileList))
-
-        val scrollPane = JBScrollPane(fileList)
-        sectionPanel.add(scrollPane, BorderLayout.CENTER)
-
-        val refreshButton = JButton("Refresh")
-        refreshButton.addActionListener(refreshAction)
-
-        sectionPanel.add(refreshButton, BorderLayout.SOUTH)
-
-        return sectionPanel
+    private fun findCSRFVulnerabilities(javaFiles: List<VirtualFile>) {
+        fileContainsRegex(CSRF_SEARCH_REGEX, javaFiles, "CSRF")
+        fileContainAnyStringOflist(CSRF_SEARCH_STRINGS, javaFiles, "CSRF")
     }
 
     private fun goToLineOnDoubleClick(project: Project, fileList: JList<SearchResult>): MouseAdapter {
